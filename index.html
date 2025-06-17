@@ -1,53 +1,87 @@
 <!DOCTYPE html>
-<html lang="ar"><!-- تم تبسيط CSS وجافا سكربت فقط -->
+<html lang="ar">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>متتبع السوق اللحظي المتقدم</title>
+  <style>
+    body { background: #111; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
+    table { width: 100%; margin: auto; border-collapse: collapse; }
+    th, td { padding: 8px; border: 1px solid #333; font-size: 0.8em; }
+    th { background: #222; }
+    .up { color: #4caf50; }
+    .down { color: #f44336; }
+    .warn { color: #ff9800; }
+  </style>
+</head>
 <body>
-  <!-- واجهة كما هي -->
-  <div id="tracker"></div>
+  <h1>📊 متتبع السوق - بيانات متقدمة من Binance وBybit</h1>
+  <div id="tracker">...جار تحميل البيانات</div>
 
   <script>
+    const proxy = "https://corsproxy.io/?";
+    const symbols = ["BTC", "ETH", "SOL", "XRP", "DOGE"];
+
     async function getBinanceInfo(sym) {
-      const s = sym.toUpperCase() + 'USDT';
-      const [fRate, oi, ls] = await Promise.all([
-        fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${s}&limit=1`).then(r=>r.json()),
-        fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${s}`).then(r=>r.json()),
-        fetch(`https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${s}&interval=5m&limit=5`).then(r=>r.json())
-      ]);
-      return {
-        funding: fRate[0]?.fundingRate || '—',
-        openInterest: oi.openInterest || '—',
-        longShort: ls[0]?.longShortRatio || '—'
-      };
+      const pair = sym + "USDT";
+      try {
+        const [fRate, oi] = await Promise.all([
+          fetch(proxy + `https://fapi.binance.com/fapi/v1/fundingRate?symbol=${pair}&limit=1`).then(res => res.json()),
+          fetch(proxy + `https://fapi.binance.com/fapi/v1/openInterest?symbol=${pair}`).then(res => res.json())
+        ]);
+        return {
+          binFunding: fRate[0]?.fundingRate || "—",
+          binOI: oi.openInterest || "—"
+        };
+      } catch {
+        return { binFunding: "خطأ", binOI: "خطأ" };
+      }
     }
 
     async function getBybitInfo(sym) {
-      const s = sym.toUpperCase() + 'USDT';
-      const [bp, oir] = await Promise.all([
-        fetch(`https://api.bybit.com/v2/public/open-interest?symbol=${s}`).then(r=>r.json()),
-        fetch(`https://api.bybit.com/v2/public/account-ratio?symbol=${s}`).then(r=>r.json())
-      ]);
-      return {
-        openInterestBybit: bp.result?.open_interest || '—',
-        LS_Bybit: oir.result?.buy_ratio ? (oir.result.buy_ratio + '%') : '—'
-      };
+      const pair = sym + "USDT";
+      try {
+        const [oiResp, ratioResp, dealsResp] = await Promise.all([
+          fetch(proxy + `https://api.bybit.com/v2/public/open-interest?symbol=${pair}`).then(res => res.json()),
+          fetch(proxy + `https://api.bybit.com/v2/public/account-ratio?symbol=${pair}`).then(res => res.json()),
+          fetch(proxy + `https://api.bybit.com/v2/public/big-deal?symbol=${pair}&limit=5`).then(res => res.json())
+        ]);
+        const oi = oiResp.result?.open_interest || "—";
+        const ls = ratioResp.result?.buy_ratio ? (parseFloat(ratioResp.result.buy_ratio)*100).toFixed(2) + "%" : "—";
+        const deals = dealsResp.result?.slice(0,3).map(d => `${d.side} $${d.price}`).join(", ") || "—";
+        return {
+          byOI: oi,
+          byLS: ls,
+          byDeals: deals
+        };
+      } catch {
+        return { byOI: "خطأ", byLS: "خطأ", byDeals: "خطأ" };
+      }
     }
 
     async function render() {
-      const tell = ['BTC','ETH','SOL','XRP']; // مثال توضيحي
-      let html = '<table><tr><th>رمز</th><th>سعر</th><th>24%</th><th>BN Funding</th><th>BN OI</th><th>BN L/S%</th><th>BY OI</th><th>BY L/S%</th></tr>';
-      for (let sym of tell) {
-        const dataMarket = (await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${sym.toLowerCase()}`)).json().then(j=>j[0]);
-        const bin = await getBinanceInfo(sym);
-        const by = await getBybitInfo(sym);
-        html += `<tr><td>${sym}</td><td>${(await dataMarket).current_price.toFixed(2)}</td><td>${(await dataMarket).price_change_percentage_24h.toFixed(1)}%</td>
-        <td>${bin.funding}</td><td>${bin.openInterest}</td><td>${bin.longShort}%</td>
-        <td>${by.openInterestBybit}</td><td>${by.LS_Bybit}</td></tr>`;
+      let html = `<table>
+        <tr>
+          <th>رمز</th><th>Bin Funding</th><th>Bin OI</th>
+          <th>By OI</th><th>By L/S</th><th>By تصفيات كبيرة</th>
+        </tr>`;
+      for (let sym of symbols) {
+        const [bn, by] = await Promise.all([getBinanceInfo(sym), getBybitInfo(sym)]);
+        html += `<tr>
+          <td>${sym}</td>
+          <td class="${bn.binFunding>0?'up':bn.binFunding<0?'down':''}">${bn.binFunding}</td>
+          <td>${parseFloat(bn.binOI).toLocaleString()}</td>
+          <td>${parseFloat(by.byOI).toLocaleString()}</td>
+          <td>${by.byLS}</td>
+          <td>${by.byDeals}</td>
+        </tr>`;
       }
-      html += '</table>';
-      document.getElementById('tracker').innerHTML = html;
+      html += `</table>`;
+      document.getElementById("tracker").innerHTML = html;
     }
 
     render();
-    setInterval(render,60000);
+    setInterval(render, 60000);
   </script>
 </body>
 </html>
