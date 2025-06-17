@@ -1,87 +1,96 @@
-<!DOCTYPE html><html lang="ar">
+<!DOCTYPE html>
+<html lang="ar">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>متتبع السوق اللحظي (200 عملة)</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>متتبع السوق اللحظي — تحليلات Gate.io</title>
   <style>
-    body { background: #111; color: #fff; font-family: Arial; text-align: center; padding: 20px; }
-    h1 { color: #f44336; }
-    .controls { margin-bottom: 20px; }
-    .controls select, .controls input, .controls button {
-      padding: 10px; margin: 5px; border-radius: 5px; border: none; background: #222; color: white;
-    }
-    table { width: 95%; margin: auto; border-collapse: collapse; }
-    th, td { padding: 10px; border: 1px solid #333; }
-    th { background: #222; }
-    .up { color: #4caf50; }
-    .down { color: #f44336; }
+    body{background:#111;color:#fff; font-family:Arial;padding:20px;}
+    h1{color:#f44336;text-align:center;}
+    .controls{margin-bottom:20px;text-align:center;}
+    select,input,button{padding:8px 15px;margin:5px;border:none;border-radius:5px;background:#222;color:#fff;}
+    table{width:100%;border-collapse:collapse;margin-top:10px;}
+    th,td{padding:6px;border:1px solid #333;text-align:center;font-size:0.9em;}
+    th{background:#222;}
+    .up{color:#4caf50;} .down{color:#f44336;} .extreme{color:#ffeb3b;font-weight:bold;}
   </style>
 </head>
 <body>
-  <h1>📊 متتبع السوق اللحظي (200 عملة)</h1>
+  <h1>📊 متتبع السوق اللحظي — تحليلات Gate.io</h1>
   <div class="controls">
-    <label for="threshold">عتبة التغيير (%):</label>
-    <select id="threshold">
-      <option>1</option>
-      <option>2</option>
-      <option>3</option>
-      <option selected>5</option>
-      <option>10</option>
-      <option>15</option>
-      <option>20</option>
-    </select>
-    <input type="text" id="search" placeholder="ابحث عن عملة...">
+    <label>عتبة %:</label>
+    <select id="threshold"><option>1</option><option>5</option><option>10</option><option selected>20</option><option>50</option></select>
+    <input id="search" placeholder="ابحث عن عملة...">
     <button onclick="setFilter('all')">الكل</button>
     <button onclick="setFilter('up')">صعود فقط</button>
     <button onclick="setFilter('down')">هبوط فقط</button>
-    <button onclick="fetchData()">🔄 تحديث الآن</button>
+    <button onclick="fetchData()">🔄 تحديث</button>
   </div>
-  <div id="tracker">جارٍ التحميل...</div>  <script>
-    let coins = [];
-    let filter = 'all';
+  <div id="tracker">جار التحميل...</div>
 
-    async function fetchData() {
-      const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1&price_change_percentage=24h');
-      const data = await res.json();
-      coins = data;
-      renderTable();
+  <script>
+    let coins=[], analytics={}, filter='all';
+
+    async function fetchData(){
+      coins=[];
+      for(let p=1;p<=2;p++){
+        const d=await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=200&page=${p}&price_change_percentage=24h`);
+        coins=coins.concat(await d.json());
+      }
+      await fetchGate(); renderTable();
     }
 
-    function renderTable() {
-      const search = document.getElementById('search').value.toLowerCase();
-      const threshold = parseFloat(document.getElementById('threshold').value);
-      let filtered = coins.filter(c =>
-        (filter === 'up' ? c.price_change_percentage_24h > threshold :
-         filter === 'down' ? c.price_change_percentage_24h < -threshold :
-         Math.abs(c.price_change_percentage_24h) >= threshold) &&
-        (c.name.toLowerCase().includes(search) || c.symbol.toLowerCase().includes(search))
-      );
+    async function fetchGate(){
+      analytics={};
+      try{
+        const tks=await (await fetch('https://fx-api.gateio.ws/api/v4/futures/usdt/tickers')).json();
+        tks.forEach(f=>{
+          const sym=f.contract.split('_')[0].toLowerCase();
+          analytics[sym]={funding:parseFloat(f.funding_rate_indicative).toFixed(5)};
+        });
+        for(let i=0;i<20;i++){
+          const sym=coins[i].symbol.toUpperCase();
+          const cs=await (await fetch(`https://fx-api.gateio.ws/api/v4/futures/usdt/contract_stats?contract=${sym}_USDT`)).json();
+          if(!analytics[sym.toLowerCase()]) analytics[sym.toLowerCase()]={};
+          analytics[sym.toLowerCase()].open_interest = parseFloat(cs.open_interest).toFixed(0);
+          analytics[sym.toLowerCase()].long_short_ratio = cs.long_short_ratio ? (cs.long_short_ratio*100).toFixed(1)+'%' : '—';
+          const l=await (await fetch(`https://api.gate.io/api/v4/futures/usdt/${sym}/liquidation_records`)).json();
+          analytics[sym.toLowerCase()].liq = l.slice(0,5).reduce((s,x)=>s+parseFloat(x.amount),0).toFixed(0);
+        }
+      } catch{}
+    }
 
-      let html = `<p>آخر تحديث: ${new Date().toLocaleString('ar')}</p>`;
-      html += `<table><tr><th>الاسم</th><th>الرمز</th><th>السعر $</th><th>التغيير (24س)</th><th>أعلى 24س</th><th>أدنى 24س</th></tr>`;
-
-      filtered.forEach(c => {
-        html += `<tr>
-          <td>${c.name}</td>
-          <td>${c.symbol.toUpperCase()}</td>
-          <td>${c.current_price}</td>
-          <td class="${c.price_change_percentage_24h >= 0 ? 'up' : 'down'}">${c.price_change_percentage_24h.toFixed(2)}%</td>
-          <td>${c.high_24h}</td>
-          <td>${c.low_24h}</td>
+    function renderTable(){
+      const thr=parseFloat(document.getElementById('threshold').value);
+      const sr=document.getElementById('search').value.toLowerCase();
+      let f=coins.filter(c=>{
+        const ch=c.price_change_percentage_24h;
+        return ch && ((filter=='up'?ch>=thr:filter=='down'?ch<=-thr:Math.abs(ch)>=thr)) &&
+               (c.name.toLowerCase().includes(sr)||c.symbol.toLowerCase().includes(sr));
+      });
+      let html=`<p>آخر: ${new Date().toLocaleString('ar')}</p><table><tr>
+        <th>#</th><th>رمز</th><th>السعر</th><th>%24</th><th>تمويل</th><th>Open Interest</th><th>L/S%</th><th>التصفيات</th></tr>`;
+      f.forEach((c,i)=>{
+        const s=c.symbol.toLowerCase(), a=analytics[s]||{};
+        const cls=c.price_change_percentage_24h>=0?'up':'down';
+        html+=`<tr>
+          <td>${i+1}</td><td>${c.symbol}</td>
+          <td>${c.current_price.toFixed(4)}</td>
+          <td class="${cls}">${c.price_change_percentage_24h.toFixed(1)}%</td>
+          <td>${a.funding||'—'}</td>
+          <td>${a.open_interest||'—'}</td>
+          <td>${a.long_short_ratio||'—'}</td>
+          <td>${a.liq||'—'}</td>
         </tr>`;
       });
-      html += `</table>`;
-      document.getElementById('tracker').innerHTML = html;
+      html+='</table>';
+      document.getElementById('tracker').innerHTML=html;
     }
 
-    function setFilter(type) {
-      filter = type;
-      renderTable();
-    }
+    window.setFilter = function(t){filter=t; renderTable();}
+    document.getElementById('search').addEventListener('input',renderTable);
+    document.getElementById('threshold').addEventListener('change',renderTable);
 
-    document.getElementById('search').addEventListener('input', renderTable);
-    document.getElementById('threshold').addEventListener('change', renderTable);
-    fetchData();
-    setInterval(fetchData, 60000);
-  </script></body>
+    fetchData(); setInterval(fetchData,60000);
+  </script>
+</body>
 </html>
