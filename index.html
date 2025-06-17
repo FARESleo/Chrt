@@ -1,100 +1,158 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>متتبع السوق اللحظي - 200 عملة</title>
-  <style>/* نفس التنسيق السابق */</style>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #eee;
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    h1 {
+      color: #f44336;
+    }
+    select, input, button {
+      padding: 10px;
+      margin: 5px;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+    }
+    select, input {
+      background-color: #222;
+      color: white;
+    }
+    button {
+      background-color: #333;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #555;
+    }
+    .up {
+      color: #4caf50;
+    }
+    .down {
+      color: #f44336;
+    }
+    table {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #333;
+    }
+    th {
+      background-color: #222;
+    }
+    #timestamp {
+      margin-top: 10px;
+      font-size: 0.9em;
+      color: #ccc;
+    }
+  </style>
 </head>
 <body>
   <h1>📊 متتبع السوق اللحظي (200 عملة)</h1>
-  <div class="controls">
-    <div class="control-group">
-      <label for="threshold">عتبة التغيير (%):</label>
-      <select id="threshold"><option>1%</option><option>3%</option><option selected>5%</option><option>10%</option></select>
-    </div>
-    <div class="control-group">
-      <input id="search-input" placeholder="ابحث عن عملة...">
-    </div>
-    <div class="filter-btns">
-      <button onclick="setFilter('all')" class="active">الكل</button>
-      <button onclick="setFilter('up')">صعود فقط</button>
-      <button onclick="setFilter('down')">هبوط فقط</button>
-    </div>
+  <div>
+    <label for="threshold">عتبة التغيير (%):</label>
+    <select id="threshold">
+      <option value="1">1%</option>
+      <option value="3" selected>3%</option>
+      <option value="5">5%</option>
+      <option value="10">10%</option>
+    </select>
+
+    <input type="text" id="search" placeholder="ابحث عن عملة...">
+    <button onclick="setFilter('all')">الكل</button>
+    <button onclick="setFilter('up')">صعود فقط</button>
+    <button onclick="setFilter('down')">هبوط فقط</button>
     <button onclick="updateData()">🔄 تحديث الآن</button>
   </div>
-  <div id="tracker">جارٍ التحميل...</div>
+
+  <div id="timestamp"></div>
+  <div id="tracker">جاري التحميل...</div>
 
   <script>
-    let coinsData = [], filter = 'all', sortColumn='rank', sortOrder='asc';
+    let data = [];
+    let filterType = 'all';
 
     async function fetchData() {
+      const url = 'https://api.coincap.io/v2/assets?limit=200';
       try {
-        const resp = await fetch('https://api.coincap.io/v2/assets?limit=200');
-        const data = await resp.json();
-        return data.data.map(c => ({
-          id: c.id, rank: +c.rank, name: c.name, symbol: c.symbol,
-          price: +c.priceUsd, change: +c.changePercent24Hr,
-          marketCap: +c.marketCapUsd, volume: +c.volumeUsd24Hr,
-          sparkline: []
+        const res = await fetch(url);
+        const json = await res.json();
+        return json.data.map(coin => ({
+          name: coin.name,
+          symbol: coin.symbol,
+          price: parseFloat(coin.priceUsd),
+          change: parseFloat(coin.changePercent24Hr)
         }));
-      } catch(e) {
-        document.getElementById('tracker').innerHTML = `<div class="error">خطأ: ${e.message}</div>`;
+      } catch (err) {
+        document.getElementById("tracker").innerHTML = '⚠️ خطأ في جلب البيانات';
         return [];
       }
     }
 
-    async function fetchSparkline(id) {
-      try {
-        const resp = await fetch(`https://api.coincap.io/v2/assets/${id}/history?interval=h1`);
-        const d = await resp.json();
-        return d.data.slice(-24).map(x => +x.priceUsd);
-      } catch { return []; }
-    }
-
-    function renderSparkline(canvasId, data) {
-      const ctx = document.getElementById(canvasId).getContext('2d');
-      new Chart(ctx, {type:'line', data:{labels:Array(data.length), datasets:[{data, borderColor: data[data.length-1]>data[0]?'#4caf50':'#f44336', fill:false, pointRadius:0, borderWidth:1}]}, options:{responsive:true, scales:{x:{display:false},y:{display:false}}, plugins:{legend:{display:false},tooltip:{enabled:false}}}});
-    }
-
     function renderTable(data) {
-      let res = data.filter(c => filter==='all' || (filter==='up' && c.change>0) || (filter==='down' && c.change<0));
-      const term = document.getElementById('search-input').value.toLowerCase();
-      if(term) res = res.filter(c=>c.name.toLowerCase().includes(term)||c.symbol.toLowerCase().includes(term));
-      const thr = +document.getElementById('threshold').value;
-      res = res.filter(c=>Math.abs(c.change)>=thr);
-      res.sort((a,b)=> sortOrder==='asc'? a[sortColumn]-b[sortColumn]: b[sortColumn]-a[sortColumn]);
+      const threshold = parseFloat(document.getElementById("threshold").value);
+      const searchTerm = document.getElementById("search").value.toLowerCase();
+      let filtered = data.filter(coin => Math.abs(coin.change) >= threshold);
 
-      let html = `<table><thead><tr><th onclick="sortTable('rank')">#</th><th onclick="sortTable('name')">الاسم</th><th>سعر</th><th>24س %</th><th>مخطط</th></tr></thead><tbody>`;
-      res.forEach(c => {
-        html += `<tr><td>${c.rank}</td><td>${c.name} (${c.symbol})</td><td>${c.price.toFixed(2)}</td><td class="${c.change>=0?'up':'down'}">${c.change.toFixed(2)}%</td><td><canvas id="sp-${c.id}" class="sparkline"></canvas></td></tr>`;
+      if (filterType === 'up') {
+        filtered = filtered.filter(coin => coin.change > 0);
+      } else if (filterType === 'down') {
+        filtered = filtered.filter(coin => coin.change < 0);
+      }
+
+      if (searchTerm) {
+        filtered = filtered.filter(coin =>
+          coin.name.toLowerCase().includes(searchTerm) || coin.symbol.toLowerCase().includes(searchTerm)
+        );
+      }
+
+      if (filtered.length === 0) {
+        document.getElementById("tracker").innerHTML = '<p style="color: red;">لا توجد نتائج مطابقة.</p>';
+        return;
+      }
+
+      let html = `<table><thead><tr>
+        <th>الاسم</th><th>الرمز</th><th>السعر $</th><th>التغيير (24س)</th>
+      </tr></thead><tbody>`;
+
+      filtered.forEach(coin => {
+        html += `<tr>
+          <td>${coin.name}</td>
+          <td>${coin.symbol}</td>
+          <td>${coin.price.toFixed(3)}</td>
+          <td class="${coin.change > 0 ? 'up' : 'down'}">${coin.change.toFixed(2)}%</td>
+        </tr>`;
       });
-      html += `</tbody></table>`;
-      document.getElementById('tracker').innerHTML = `<div>آخر: ${new Date().toLocaleString('ar')}</div>` + html;
-      res.forEach(c=> c.sparkline.length && renderSparkline(`sp-${c.id}`, c.sparkline));
+
+      html += '</tbody></table>';
+      document.getElementById("tracker").innerHTML = html;
+      document.getElementById("timestamp").innerText = `آخر تحديث: ${new Date().toLocaleString('ar')}`;
+    }
+
+    function setFilter(type) {
+      filterType = type;
+      renderTable(data);
     }
 
     async function updateData() {
-      coinsData = await fetchData();
-      await Promise.all(coinsData.map(async c=> c.sparkline = await fetchSparkline(c.id)));
-      renderTable(coinsData);
+      data = await fetchData();
+      renderTable(data);
     }
 
-    function sortTable(col) {
-      sortColumn = col;
-      sortOrder = sortOrder==='asc'?'desc':'asc';
-      renderTable(coinsData);
-    }
-    function setFilter(f) {
-      filter = f;
-      document.querySelectorAll('.filter-btns button').forEach(b=>b.classList.remove('active'));
-      document.querySelector(`.filter-btns button[onclick="setFilter('${f}')"]`).classList.add('active');
-      renderTable(coinsData);
-    }
-
-    document.getElementById('threshold').addEventListener('change', ()=>renderTable(coinsData));
-    document.getElementById('search-input').addEventListener('input', ()=>renderTable(coinsData));
+    document.getElementById("threshold").addEventListener("change", () => renderTable(data));
+    document.getElementById("search").addEventListener("input", () => renderTable(data));
 
     updateData();
     setInterval(updateData, 30000);
