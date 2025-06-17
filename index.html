@@ -2,115 +2,86 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>متتبع السوق اللحظي - 200 عملة</title>
+  <title>متتبع السوق اللحظي (200 عملة)</title>
   <style>
-    body { background-color: #121212; color: #eee; font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    body { background: #111; color: #fff; font-family: Arial; text-align: center; padding: 20px; }
     h1 { color: #f44336; }
-    select, input, button {
-      padding: 10px; margin: 5px; border: none; border-radius: 5px; font-size: 1em;
+    .controls { margin-bottom: 20px; }
+    .controls select, .controls input, .controls button {
+      padding: 10px; margin: 5px; border-radius: 5px; border: none; background: #222; color: white;
     }
-    select, input { background-color: #222; color: white; }
-    button { background-color: #333; color: white; cursor: pointer; }
-    button:hover { background-color: #555; }
+    table { width: 95%; margin: auto; border-collapse: collapse; }
+    th, td { padding: 10px; border: 1px solid #333; }
+    th { background: #222; }
     .up { color: #4caf50; }
     .down { color: #f44336; }
-    table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-    th, td { padding: 10px; border-bottom: 1px solid #333; }
-    th { background-color: #222; cursor: pointer; }
-    #timestamp { margin-top: 10px; font-size: 0.9em; color: #ccc; }
   </style>
 </head>
 <body>
   <h1>📊 متتبع السوق اللحظي (200 عملة)</h1>
-  <div>
+  <div class="controls">
     <label for="threshold">عتبة التغيير (%):</label>
     <select id="threshold">
-      <option value="1">1%</option>
-      <option value="3" selected>3%</option>
-      <option value="5">5%</option>
-      <option value="10">10%</option>
-    </select><input type="text" id="search" placeholder="ابحث عن عملة...">
-<button onclick="setFilter('all')">الكل</button>
-<button onclick="setFilter('up')">صعود فقط</button>
-<button onclick="setFilter('down')">هبوط فقط</button>
-<button onclick="updateData()">🔄 تحديث الآن</button>
-
-  </div>  <div id="timestamp"></div>
-  <div id="tracker">جاري التحميل...</div>  <script>
-    let data = [];
-    let filterType = 'all';
+      <option>1</option>
+      <option>2</option>
+      <option>3</option>
+      <option selected>5</option>
+      <option>10</option>
+      <option>15</option>
+      <option>20</option>
+    </select>
+    <input type="text" id="search" placeholder="ابحث عن عملة...">
+    <button onclick="setFilter('all')">الكل</button>
+    <button onclick="setFilter('up')">صعود فقط</button>
+    <button onclick="setFilter('down')">هبوط فقط</button>
+    <button onclick="fetchData()">🔄 تحديث الآن</button>
+  </div>
+  <div id="tracker">جارٍ التحميل...</div>  <script>
+    let coins = [];
+    let filter = 'all';
 
     async function fetchData() {
-      const url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1&price_change_percentage=24h';
-      try {
-        const res = await fetch(url);
-        const json = await res.json();
-        return json.map(coin => ({
-          name: coin.name,
-          symbol: coin.symbol.toUpperCase(),
-          price: coin.current_price,
-          change: coin.price_change_percentage_24h
-        }));
-      } catch (err) {
-        document.getElementById("tracker").innerHTML = '⚠️ خطأ في جلب البيانات';
-        return [];
-      }
+      const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=200&page=1&price_change_percentage=24h');
+      const data = await res.json();
+      coins = data;
+      renderTable();
     }
 
-    function renderTable(data) {
-      const threshold = parseFloat(document.getElementById("threshold").value);
-      const searchTerm = document.getElementById("search").value.toLowerCase();
-      let filtered = data.filter(coin => Math.abs(coin.change) >= threshold);
+    function renderTable() {
+      const search = document.getElementById('search').value.toLowerCase();
+      const threshold = parseFloat(document.getElementById('threshold').value);
+      let filtered = coins.filter(c =>
+        (filter === 'up' ? c.price_change_percentage_24h > threshold :
+         filter === 'down' ? c.price_change_percentage_24h < -threshold :
+         Math.abs(c.price_change_percentage_24h) >= threshold) &&
+        (c.name.toLowerCase().includes(search) || c.symbol.toLowerCase().includes(search))
+      );
 
-      if (filterType === 'up') {
-        filtered = filtered.filter(coin => coin.change > 0);
-      } else if (filterType === 'down') {
-        filtered = filtered.filter(coin => coin.change < 0);
-      }
+      let html = `<p>آخر تحديث: ${new Date().toLocaleString('ar')}</p>`;
+      html += `<table><tr><th>الاسم</th><th>الرمز</th><th>السعر $</th><th>التغيير (24س)</th><th>أعلى 24س</th><th>أدنى 24س</th></tr>`;
 
-      if (searchTerm) {
-        filtered = filtered.filter(coin =>
-          coin.name.toLowerCase().includes(searchTerm) || coin.symbol.toLowerCase().includes(searchTerm)
-        );
-      }
-
-      if (filtered.length === 0) {
-        document.getElementById("tracker").innerHTML = '<p style="color: red;">لا توجد نتائج مطابقة.</p>';
-        return;
-      }
-
-      let html = `<table><thead><tr>
-        <th>الاسم</th><th>الرمز</th><th>السعر $</th><th>التغيير (24س)</th>
-      </tr></thead><tbody>`;
-
-      filtered.forEach(coin => {
+      filtered.forEach(c => {
         html += `<tr>
-          <td>${coin.name}</td>
-          <td>${coin.symbol}</td>
-          <td>${coin.price.toFixed(3)}</td>
-          <td class="${coin.change > 0 ? 'up' : 'down'}">${coin.change.toFixed(2)}%</td>
+          <td>${c.name}</td>
+          <td>${c.symbol.toUpperCase()}</td>
+          <td>${c.current_price}</td>
+          <td class="${c.price_change_percentage_24h >= 0 ? 'up' : 'down'}">${c.price_change_percentage_24h.toFixed(2)}%</td>
+          <td>${c.high_24h}</td>
+          <td>${c.low_24h}</td>
         </tr>`;
       });
-
-      html += '</tbody></table>';
-      document.getElementById("tracker").innerHTML = html;
-      document.getElementById("timestamp").innerText = `آخر تحديث: ${new Date().toLocaleString('ar')}`;
+      html += `</table>`;
+      document.getElementById('tracker').innerHTML = html;
     }
 
     function setFilter(type) {
-      filterType = type;
-      renderTable(data);
+      filter = type;
+      renderTable();
     }
 
-    async function updateData() {
-      data = await fetchData();
-      renderTable(data);
-    }
-
-    document.getElementById("threshold").addEventListener("change", () => renderTable(data));
-    document.getElementById("search").addEventListener("input", () => renderTable(data));
-
-    updateData();
-    setInterval(updateData, 30000);
+    document.getElementById('search').addEventListener('input', renderTable);
+    document.getElementById('threshold').addEventListener('change', renderTable);
+    fetchData();
+    setInterval(fetchData, 60000);
   </script></body>
 </html>
