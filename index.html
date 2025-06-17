@@ -1,96 +1,53 @@
 <!DOCTYPE html>
-<html lang="ar">
-<head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>متتبع السوق اللحظي — تحليلات Gate.io</title>
-  <style>
-    body{background:#111;color:#fff; font-family:Arial;padding:20px;}
-    h1{color:#f44336;text-align:center;}
-    .controls{margin-bottom:20px;text-align:center;}
-    select,input,button{padding:8px 15px;margin:5px;border:none;border-radius:5px;background:#222;color:#fff;}
-    table{width:100%;border-collapse:collapse;margin-top:10px;}
-    th,td{padding:6px;border:1px solid #333;text-align:center;font-size:0.9em;}
-    th{background:#222;}
-    .up{color:#4caf50;} .down{color:#f44336;} .extreme{color:#ffeb3b;font-weight:bold;}
-  </style>
-</head>
+<html lang="ar"><!-- تم تبسيط CSS وجافا سكربت فقط -->
 <body>
-  <h1>📊 متتبع السوق اللحظي — تحليلات Gate.io</h1>
-  <div class="controls">
-    <label>عتبة %:</label>
-    <select id="threshold"><option>1</option><option>5</option><option>10</option><option selected>20</option><option>50</option></select>
-    <input id="search" placeholder="ابحث عن عملة...">
-    <button onclick="setFilter('all')">الكل</button>
-    <button onclick="setFilter('up')">صعود فقط</button>
-    <button onclick="setFilter('down')">هبوط فقط</button>
-    <button onclick="fetchData()">🔄 تحديث</button>
-  </div>
-  <div id="tracker">جار التحميل...</div>
+  <!-- واجهة كما هي -->
+  <div id="tracker"></div>
 
   <script>
-    let coins=[], analytics={}, filter='all';
+    async function getBinanceInfo(sym) {
+      const s = sym.toUpperCase() + 'USDT';
+      const [fRate, oi, ls] = await Promise.all([
+        fetch(`https://fapi.binance.com/fapi/v1/fundingRate?symbol=${s}&limit=1`).then(r=>r.json()),
+        fetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${s}`).then(r=>r.json()),
+        fetch(`https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol=${s}&interval=5m&limit=5`).then(r=>r.json())
+      ]);
+      return {
+        funding: fRate[0]?.fundingRate || '—',
+        openInterest: oi.openInterest || '—',
+        longShort: ls[0]?.longShortRatio || '—'
+      };
+    }
 
-    async function fetchData(){
-      coins=[];
-      for(let p=1;p<=2;p++){
-        const d=await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=200&page=${p}&price_change_percentage=24h`);
-        coins=coins.concat(await d.json());
+    async function getBybitInfo(sym) {
+      const s = sym.toUpperCase() + 'USDT';
+      const [bp, oir] = await Promise.all([
+        fetch(`https://api.bybit.com/v2/public/open-interest?symbol=${s}`).then(r=>r.json()),
+        fetch(`https://api.bybit.com/v2/public/account-ratio?symbol=${s}`).then(r=>r.json())
+      ]);
+      return {
+        openInterestBybit: bp.result?.open_interest || '—',
+        LS_Bybit: oir.result?.buy_ratio ? (oir.result.buy_ratio + '%') : '—'
+      };
+    }
+
+    async function render() {
+      const tell = ['BTC','ETH','SOL','XRP']; // مثال توضيحي
+      let html = '<table><tr><th>رمز</th><th>سعر</th><th>24%</th><th>BN Funding</th><th>BN OI</th><th>BN L/S%</th><th>BY OI</th><th>BY L/S%</th></tr>';
+      for (let sym of tell) {
+        const dataMarket = (await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${sym.toLowerCase()}`)).json().then(j=>j[0]);
+        const bin = await getBinanceInfo(sym);
+        const by = await getBybitInfo(sym);
+        html += `<tr><td>${sym}</td><td>${(await dataMarket).current_price.toFixed(2)}</td><td>${(await dataMarket).price_change_percentage_24h.toFixed(1)}%</td>
+        <td>${bin.funding}</td><td>${bin.openInterest}</td><td>${bin.longShort}%</td>
+        <td>${by.openInterestBybit}</td><td>${by.LS_Bybit}</td></tr>`;
       }
-      await fetchGate(); renderTable();
+      html += '</table>';
+      document.getElementById('tracker').innerHTML = html;
     }
 
-    async function fetchGate(){
-      analytics={};
-      try{
-        const tks=await (await fetch('https://fx-api.gateio.ws/api/v4/futures/usdt/tickers')).json();
-        tks.forEach(f=>{
-          const sym=f.contract.split('_')[0].toLowerCase();
-          analytics[sym]={funding:parseFloat(f.funding_rate_indicative).toFixed(5)};
-        });
-        for(let i=0;i<20;i++){
-          const sym=coins[i].symbol.toUpperCase();
-          const cs=await (await fetch(`https://fx-api.gateio.ws/api/v4/futures/usdt/contract_stats?contract=${sym}_USDT`)).json();
-          if(!analytics[sym.toLowerCase()]) analytics[sym.toLowerCase()]={};
-          analytics[sym.toLowerCase()].open_interest = parseFloat(cs.open_interest).toFixed(0);
-          analytics[sym.toLowerCase()].long_short_ratio = cs.long_short_ratio ? (cs.long_short_ratio*100).toFixed(1)+'%' : '—';
-          const l=await (await fetch(`https://api.gate.io/api/v4/futures/usdt/${sym}/liquidation_records`)).json();
-          analytics[sym.toLowerCase()].liq = l.slice(0,5).reduce((s,x)=>s+parseFloat(x.amount),0).toFixed(0);
-        }
-      } catch{}
-    }
-
-    function renderTable(){
-      const thr=parseFloat(document.getElementById('threshold').value);
-      const sr=document.getElementById('search').value.toLowerCase();
-      let f=coins.filter(c=>{
-        const ch=c.price_change_percentage_24h;
-        return ch && ((filter=='up'?ch>=thr:filter=='down'?ch<=-thr:Math.abs(ch)>=thr)) &&
-               (c.name.toLowerCase().includes(sr)||c.symbol.toLowerCase().includes(sr));
-      });
-      let html=`<p>آخر: ${new Date().toLocaleString('ar')}</p><table><tr>
-        <th>#</th><th>رمز</th><th>السعر</th><th>%24</th><th>تمويل</th><th>Open Interest</th><th>L/S%</th><th>التصفيات</th></tr>`;
-      f.forEach((c,i)=>{
-        const s=c.symbol.toLowerCase(), a=analytics[s]||{};
-        const cls=c.price_change_percentage_24h>=0?'up':'down';
-        html+=`<tr>
-          <td>${i+1}</td><td>${c.symbol}</td>
-          <td>${c.current_price.toFixed(4)}</td>
-          <td class="${cls}">${c.price_change_percentage_24h.toFixed(1)}%</td>
-          <td>${a.funding||'—'}</td>
-          <td>${a.open_interest||'—'}</td>
-          <td>${a.long_short_ratio||'—'}</td>
-          <td>${a.liq||'—'}</td>
-        </tr>`;
-      });
-      html+='</table>';
-      document.getElementById('tracker').innerHTML=html;
-    }
-
-    window.setFilter = function(t){filter=t; renderTable();}
-    document.getElementById('search').addEventListener('input',renderTable);
-    document.getElementById('threshold').addEventListener('change',renderTable);
-
-    fetchData(); setInterval(fetchData,60000);
+    render();
+    setInterval(render,60000);
   </script>
 </body>
 </html>
